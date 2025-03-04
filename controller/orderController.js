@@ -14,15 +14,24 @@ import { contacts } from "../schema.js"
             if (existingUsers?.length > 0) {
                 const existingUser = existingUsers[0];
     
-                await db.insert(contacts).values({
+               const secondaryUser= await db.insert(contacts).values({
                     phoneNumber,
                     email,
                     linkedId: existingUser.id, 
                     linkPrecedence: "secondary"
-                });
+                }).returning()
+console.log({secondaryUser});
+
+                let contact={
+"primaryContatctId": existingUser.id,
+"emails": [existingUser.email,secondaryUser[0]?.email],
+"phoneNumbers": [existingUser.phoneNumber,secondaryUser[0]?.phoneNumber],
+"secondaryContactIds": [secondaryUser[0]?.id]
+                }
                 return res.status(201).json({ 
                     status: true, 
-                    message: "User exists, used different credential" 
+                    message: "User exists, used different credential" ,
+                    contact
                 });
                 }
     

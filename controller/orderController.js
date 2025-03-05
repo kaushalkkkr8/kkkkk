@@ -4,74 +4,6 @@ import { contacts } from "../schema.js"
 
 
 
-// export const orderController = async (req, res) => {
-//     const { phoneNumber, email } = req.body
-
-//     try {
-//         const existingUsers = await db.select().from(contacts).where(or(eq(contacts.email, email), eq(contacts.phoneNumber, phoneNumber)))
-
-//         const exactMatch = existingUsers?.find(e => e.email === email && e.phoneNumber === phoneNumber);
-//         if (exactMatch) {
-//             return res.status(200).json({
-//                 status: true,
-//                 message: "User already exists",
-//             });
-//         }
-
-
-//         const primaryUser = existingUsers?.find(e => e.linkPrecedence === "primary")
-
-//         if (primaryUser) {
-
-//             const secondaryUser = await db.insert(contacts).values({
-//                 phoneNumber,
-//                 email,
-//                 linkedId: primaryUser.id,
-//                 linkPrecedence: "secondary"
-//             }).returning()
-//             console.log({ secondaryUser });
-//             const allSecondaryUsers = await db.select().from(contacts).where(
-//                 and(eq(contacts.linkPrecedence, "secondary"), eq(contacts.linkedId, primaryUser.id),
-//                     or(eq(contacts.email, primaryUser.email), eq(contacts.phoneNumber, primaryUser.phoneNumber))
-//                 )
-//             );
-//             console.log({allSecondaryUsers});
-
-
-//             let contact = {
-//                 "primaryContatctId": primaryUser.id,
-//                 "emails": [primaryUser.email, ...allSecondaryUsers?.map(e=>e.email)],
-//                 "phoneNumbers": [primaryUser.phoneNumber, ...allSecondaryUsers?.map(e=>e.phoneNumber)],
-//                 "secondaryContactIds": [secondaryUser[0]?.id]
-//             }
-//             return res.status(201).json({
-//                 status: true,
-//                 message: "User exists, used different credential",
-//                 contact
-//             });
-//         }
-
-
-
-//         const newUser = await db.insert(contacts).values({
-//             phoneNumber,
-//             email,
-//             linkPrecedence: "primary"
-//         }).returning();
-
-//         return res.status(201).json({
-//             status: true,
-//             message: "New User Created",
-//             data: newUser
-//         });
-
-//     } catch (error) {
-//         console.error(error);
-//         res.status(500).json({ msg: "Internal Server Error" });
-//     }
-// }
-
-
 export const orderController = async (req, res) => {
     let { phoneNumber, email } = req.body;
 
@@ -105,13 +37,50 @@ export const orderController = async (req, res) => {
             }
 
             // Determine the smallest ID primary user
+            // let primaryUser = primaryUsers.reduce((minUser, user) => (user.id < minUser.id ? user : minUser), primaryUsers[0]);
+            // Determine the smallest ID primary user
+
+                
+                
             let primaryUser = primaryUsers.reduce((minUser, user) => (user.id < minUser.id ? user : minUser), primaryUsers[0]);
 
-            // Fetch all secondary users linked to this primary
+
+
+            
             const allSecondaryUsers = await db
                 .select()
                 .from(contacts)
                 .where(eq(contacts.linkedId, primaryUser.id));
+
+            // If there are multiple primary users, update the one with the larger ID to secondary
+            // const primaryUserIds = primaryUsers.map(user => user.id);
+            const secondaryUsersToUpdate = primaryUsers.filter(user => user.id !== primaryUser.id);
+            console.log({primaryUser});
+            console.log({secondaryUsersToUpdate});
+            
+
+            if (secondaryUsersToUpdate.length > 0) {
+                await db
+                    .update(contacts)
+                    .set({ linkedId: primaryUser.id, linkPrecedence: "secondary" })
+                    .where(inArray(contacts.id, secondaryUsersToUpdate.map(user => user.id)));
+
+                    return res.status(200).json(
+                        { status: false, message: "Provide at least email or phoneNumber.",
+                            contact: {
+                                primaryContactId: primaryUser.id,
+                                emails: Array.from(new Set([primaryUser.email, ...allSecondaryUsers.map(e => e.email)].filter(Boolean))),
+                                phoneNumbers: Array.from(new Set([primaryUser.phoneNumber, ...allSecondaryUsers.map(e => e.phoneNumber)].filter(Boolean))),
+                                secondaryContactIds: allSecondaryUsers.map(e => e.id)
+                            }
+                         }
+
+                    )
+            }
+
+
+            // Fetch all secondary users linked to this primary
+            
 
             // If the exact email and phone number exist, return the existing data
             if (existingUsers.some(e => e.email === email && e.phoneNumber === phoneNumber)) {
@@ -128,7 +97,7 @@ export const orderController = async (req, res) => {
             }
 
             // If the new email or phone exists in secondary, return data
-            const isAlreadyExisting =  allSecondaryUsers?.some(e => e.email === email || e.phoneNumber === phoneNumber);
+            const isAlreadyExisting = allSecondaryUsers?.some(e => e.email === email || e.phoneNumber === phoneNumber);
             if (isAlreadyExisting) {
                 return res.status(200).json({
                     status: true,
